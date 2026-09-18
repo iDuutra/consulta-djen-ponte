@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 from flask import Flask, jsonify, request
@@ -7,10 +7,8 @@ from flask import Flask, jsonify, request
 app = Flask(__name__)
 BASE = "https://comunicaapi.pje.jus.br/api/v1"
 
-
 def clean_process(value):
     return re.sub(r"[^0-9]", "", str(value or ""))
-
 
 def normalize_date(value):
     if not value:
@@ -23,20 +21,20 @@ def normalize_date(value):
             continue
     return text[:10] if len(text) >= 10 else text
 
-
 @app.get("/")
 def health():
     return jsonify({"ok": True, "service": "consulta-djen-ponte"})
-
 
 @app.post("/")
 def consultar():
     data = request.get_json(silent=True) or {}
     processo = clean_process(data.get("processo"))
-    inicio = normalize_date(data.get("data_inicio") or data.get("data"))
-    fim = normalize_date(data.get("data_fim") or inicio)
     if not processo:
         return jsonify({"encontrada": False, "erro": "processo_obrigatorio"}), 400
+
+    hoje = datetime.now().date()
+    inicio = (hoje - timedelta(days=10)).strftime("%Y-%m-%d")
+    fim = hoje.strftime("%Y-%m-%d")
     params = {
         "numeroProcesso": processo,
         "dataDisponibilizacaoInicio": inicio,
@@ -56,11 +54,13 @@ def consultar():
     items = payload.get("items", payload if isinstance(payload, list) else [])
     item = next((x for x in items if clean_process(x.get("numeroProcesso")) == processo), None)
     if not item:
-        return jsonify({"encontrada": False, "processo": processo, "count": payload.get("count", 0) if isinstance(payload, dict) else 0})
+        return jsonify({"encontrada": False, "processo": processo, "count": payload.get("count", 0) if isinstance(payload, dict) else 0, "data_inicio": inicio, "data_fim": fim})
 
     result = dict(item)
     result["encontrada"] = True
     result["processo"] = processo
+    result["data_inicio"] = inicio
+    result["data_fim"] = fim
     result["teor_integral"] = item.get("texto") or item.get("teor") or item.get("conteudo")
     hash_value = item.get("hash") or item.get("id")
     if hash_value:
