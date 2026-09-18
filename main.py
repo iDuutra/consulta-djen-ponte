@@ -1,15 +1,11 @@
 import re
 from datetime import datetime, timedelta
-
 import requests
 from flask import Flask, jsonify, request
-
 app = Flask(__name__)
 BASE = "https://comunicaapi.pje.jus.br/api/v1"
-
 def clean_process(value):
     return re.sub(r"[^0-9]", "", str(value or ""))
-
 def normalize_date(value):
     if not value:
         return None
@@ -20,18 +16,38 @@ def normalize_date(value):
         except ValueError:
             continue
     return text[:10] if len(text) >= 10 else text
-
+def extract_items(payload):
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+    for key in ("items", "content", "comunicacoes", "results", "data"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            for nested_key in ("items", "content", "comunicacoes", "results"):
+                nested = value.get(nested_key)
+                if isinstance(nested, list):
+                    return nested
+    return []
+def item_process(item):
+    if not isinstance(item, dict):
+        return ""
+    return clean_process(
+        item.get("numeroProcesso")
+        or item.get("processo")
+        or item.get("numeroProcessoFormatado")
+    )
 @app.get("/")
 def health():
     return jsonify({"ok": True, "service": "consulta-djen-ponte"})
-
 @app.post("/")
 def consultar():
     data = request.get_json(silent=True) or {}
     processo = clean_process(data.get("processo"))
     if not processo:
         return jsonify({"encontrada": False, "erro": "processo_obrigatorio"}), 400
-
     hoje = datetime.now().date()
     inicio = (hoje - timedelta(days=10)).strftime("%Y-%m-%d")
     fim = hoje.strftime("%Y-%m-%d")
@@ -42,35 +58,39 @@ def consultar():
         "itensPorPagina": 50,
         "pagina": 1,
     }
-    try:
-        r = requests.get(BASE + "/comunicacao", params=params, headers={"Accept": "application/json"}, timeout=25)
-        r.raise_for_status()
-        payload = r.json()
-    except requests.exceptions.RequestException as exc:
-        return jsonify({"encontrada": False, "processo": processo, "erro": "djen_indisponivel", "detalhe": str(exc)}), 502
-    except ValueError as exc:
-        return jsonify({"encontrada": False, "processo": processo, "erro": "resposta_djen_invalida", "detalhe": str(exc)}), 502
-
-    items = payload.get("items", payload if isinstance(payload, list) else [])
-    item = next((x for x in items if clean_process(x.get("numeroProcesso")) == processo), None)
-    if not item:
-        return jsonify({"encontrada": False, "processo": processo, "count": payload.get("count", 0) if isinstance(payload, dict) else 0, "data_inicio": inicio, "data_fim": fim})
-
+    response = requests.get(f"{BASE}/comunicacao", params=params, timeout=30)
+    if response.status_code >= 400:
+        return jsonify({
+            "encontrada": False,
+            "processo": processo,
+            "data_inicio": inicio,
+            "data_fim": fim,
+            "erro": f"api_http_{response.status_code}",
+            "detalhe": response.text[:500],
+        }), 502
+    payload = response.json()
+    items = extract_items(payload)
+    item = next((entry for entry in items if item_process(entry) == processo), None)
+    if item is None and len(items) == 1:
+        item = items[0]
+    if item is None:
+        return jsonify({
+            "encontrada": False,
+            "processo": processo,
+            "data_inicio": inicio,
+            "data_fim": fim,
+            "count": payload.get("count", len(items)) if isinstance(payload, dict) else len(items),
+        })
     result = dict(item)
     result["encontrada"] = True
     result["processo"] = processo
     result["data_inicio"] = inicio
     result["data_fim"] = fim
-    result["teor_integral"] = item.get("texto") or item.get("teor") or item.get("conteudo")
-    hash_value = item.get("hash") or item.get("id")
-    if hash_value:
-        cert_url = BASE + "/comunicacao/" + str(hash_value) + "/certidao"
-        try:
-            cert = requests.get(cert_url, headers={"Accept": "application/json"}, timeout=25)
-            if cert.ok:
-                result["certidao_url"] = cert_url
-                if not result.get("teor_integral"):
-                    result["teor_integral"] = cert.text
-        except requests.exceptions.RequestException:
-            pass
+    result["teor_integral"] = (
+        item.get("teor") or item.get("texto") or item.get("conteudo")
+        or item.get("descricao") or item.get("mensagem")
+    )
+    certidao = item.get("certidaoUrl") or item.get("certidao_url") or item.get("url")
+    if certidao:
+        result["certidao_url"] = certidao
     return jsonify(result)
