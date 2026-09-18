@@ -75,6 +75,9 @@ def consultar():
             "data_inicio": inicio,
             "data_fim": fim,
             "count": payload.get("count", len(items)) if isinstance(payload, dict) else len(items),
+            "debug_top_keys": list(payload.keys()) if isinstance(payload, dict) else [],
+            "debug_types": {key: type(value).__name__ for key, value in payload.items()} if isinstance(payload, dict) else {},
+            "debug_sample": items[:2],
         })
     result = dict(item)
     result["encontrada"] = True
