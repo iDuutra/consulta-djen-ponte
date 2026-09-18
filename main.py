@@ -1,13 +1,19 @@
 import re
 import requests
-from flask import jsonify, Request
+from flask import Flask, jsonify, request
 
+app = Flask(__name__)
 BASE = "https://comunicaapi.pje.jus.br/api/v1"
 
 def clean_process(value):
     return re.sub(r"[^0-9]", "", str(value or ""))
 
-def main(request: Request):
+@app.get("/")
+def health():
+    return jsonify({"ok": True, "service": "consulta-djen-ponte"})
+
+@app.post("/")
+def consultar():
     data = request.get_json(silent=True) or {}
     processo = clean_process(data.get("processo"))
     inicio = data.get("data_inicio") or data.get("data")
@@ -34,4 +40,3 @@ def main(request: Request):
             if not result.get("teor_integral"):
                 result["teor_integral"] = cert.text
     return jsonify(result)
-
