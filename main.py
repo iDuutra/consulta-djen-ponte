@@ -21,21 +21,26 @@ def extract_items(payload):
         return payload
     if not isinstance(payload, dict):
         return []
-    for key in ("items", "content", "comunicacoes", "results", "data"):
+    for key in ("items", "content", "comunicacoes", "results", "data", "comunicacao"):
         value = payload.get(key)
         if isinstance(value, list):
             return value
         if isinstance(value, dict):
-            for nested_key in ("items", "content", "comunicacoes", "results"):
+            if any(name in value for name in ("numeroProcesso", "numero_processo", "processo")):
+                return [value]
+            for nested_key in ("items", "content", "comunicacoes", "results", "data", "comunicacao"):
                 nested = value.get(nested_key)
                 if isinstance(nested, list):
                     return nested
+                if isinstance(nested, dict) and any(name in nested for name in ("numeroProcesso", "numero_processo", "processo")):
+                    return [nested]
     return []
 def item_process(item):
     if not isinstance(item, dict):
         return ""
     return clean_process(
         item.get("numeroProcesso")
+        or item.get("numero_processo")
         or item.get("processo")
         or item.get("numeroProcessoFormatado")
     )
