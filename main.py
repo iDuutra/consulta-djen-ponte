@@ -20,6 +20,8 @@ def extract_items(payload):
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
+        if any(key in payload for key in ("numero_processo", "numeroProcesso", "numero_processo_com_mascara")):
+            return [payload]
         for value in payload.values():
             found = extract_items(value)
             if found:
@@ -75,9 +77,6 @@ def consultar():
             "data_inicio": inicio,
             "data_fim": fim,
             "count": payload.get("count", len(items)) if isinstance(payload, dict) else len(items),
-            "debug_top_keys": list(payload.keys()) if isinstance(payload, dict) else [],
-            "debug_types": {key: type(value).__name__ for key, value in payload.items()} if isinstance(payload, dict) else {},
-            "debug_sample": items[:2],
         })
     result = dict(item)
     result["encontrada"] = True
@@ -88,7 +87,7 @@ def consultar():
         item.get("teor") or item.get("texto") or item.get("conteudo")
         or item.get("descricao") or item.get("mensagem")
     )
-    certidao = item.get("certidaoUrl") or item.get("certidao_url") or item.get("url")
+    certidao = item.get("certidaoUrl") or item.get("certidao_url") or item.get("url") or item.get("link")
     if certidao:
         result["certidao_url"] = certidao
     return jsonify(result)
