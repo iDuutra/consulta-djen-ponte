@@ -19,31 +19,21 @@ def normalize_date(value):
 def extract_items(payload):
     if isinstance(payload, list):
         return payload
-    if not isinstance(payload, dict):
-        return []
-    for key in ("items", "content", "comunicacoes", "results", "data", "comunicacao"):
-        value = payload.get(key)
-        if isinstance(value, list):
-            return value
-        if isinstance(value, dict):
-            if any(name in value for name in ("numeroProcesso", "numero_processo", "processo")):
-                return [value]
-            for nested_key in ("items", "content", "comunicacoes", "results", "data", "comunicacao"):
-                nested = value.get(nested_key)
-                if isinstance(nested, list):
-                    return nested
-                if isinstance(nested, dict) and any(name in nested for name in ("numeroProcesso", "numero_processo", "processo")):
-                    return [nested]
+    if isinstance(payload, dict):
+        for value in payload.values():
+            found = extract_items(value)
+            if found:
+                return found
     return []
 def item_process(item):
     if not isinstance(item, dict):
         return ""
-    return clean_process(
-        item.get("numeroProcesso")
-        or item.get("numero_processo")
-        or item.get("processo")
-        or item.get("numeroProcessoFormatado")
-    )
+    for key, value in item.items():
+        if "processo" in key.lower() and value:
+            cleaned = clean_process(value)
+            if cleaned:
+                return cleaned
+    return ""
 @app.get("/")
 def health():
     return jsonify({"ok": True, "service": "consulta-djen-ponte"})
